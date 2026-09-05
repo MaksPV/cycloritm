@@ -1,0 +1,11 @@
+schedule "SYNTAX" {
+  point DEPOT {
+    actions = [depart];
+  }
+
+  cycle R
+    duration = 1h,
+  {
+    0m: DEPOT.depart();
+  }
+}
