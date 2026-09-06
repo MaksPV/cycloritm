@@ -153,6 +153,11 @@ pub fn actual_ms(name: &str, tables: &NameTables<'_>) -> Result<i64, Error> {
     Ok(stmts_end(&cycle.stmts, tables)?.0)
 }
 
+/// Фактическая длительность `root_cycle` — горизонт занятости `S` (§4).
+pub fn root_actual_ms(schedule: &Schedule, tables: &NameTables<'_>) -> Result<i64, Error> {
+    Ok(stmts_end(&schedule.root.stmts, tables)?.0)
+}
+
 /// Конец занятого отрезка списка строк и индекс строки-аргмакса
 /// (при равных концах — первой). Пустой список — `(0, None)`.
 fn stmts_end(stmts: &[Stmt], tables: &NameTables<'_>) -> Result<(i64, Option<usize>), Error> {

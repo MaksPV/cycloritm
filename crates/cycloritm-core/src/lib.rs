@@ -5,6 +5,7 @@ use std::fmt;
 
 pub mod datetime;
 pub mod duration;
+pub mod expand;
 pub mod validate;
 
 pub fn placeholder() -> bool {
