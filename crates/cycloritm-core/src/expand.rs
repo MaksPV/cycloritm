@@ -14,7 +14,7 @@
 use cycloritm_parser::{Invocation, Schedule};
 
 use crate::datetime::parse_datetime;
-use crate::duration::{duration_ms, root_period_ms};
+use crate::duration::{effective_offset_ms, root_period_ms};
 use crate::validate::{root_actual_ms, NameTables};
 use crate::Error;
 
@@ -53,7 +53,8 @@ pub fn expand(
     while t0 + k * period < end {
         let base = t0 + k * period;
         for st in &schedule.root.stmts {
-            let offset = duration_ms(&st.offset)? as i128;
+            let offset =
+                effective_offset_ms(st, period as i64, &schedule.root.duration.raw)? as i128;
             unfold(&st.invocation, base + offset, k, tables, &mut raw, &mut seq)?;
         }
         k += 1;
@@ -113,8 +114,11 @@ fn unfold(
                 .cycles
                 .get(name.as_str())
                 .expect("имена уже проверены");
+            // Отрицательные смещения строк разрешаются через длительность
+            // непосредственно объемлющего цикла (§4 спеки).
+            let limit = crate::duration::duration_ms(&cycle.duration)?;
             for st in &cycle.stmts {
-                let offset = duration_ms(&st.offset)? as i128;
+                let offset = effective_offset_ms(st, limit, &cycle.duration.raw)? as i128;
                 unfold(&st.invocation, base + offset, k, tables, out, seq)?;
             }
             Ok(())
@@ -258,6 +262,35 @@ mod tests {
             ]
         );
         assert_eq!(events.len(), 3);
+    }
+
+    #[test]
+    fn negative_offsets_match_positive_equivalents() {
+        // `-10m ≡ 70m`, `-0m ≡ 80m`: развёртка негативной программы дословно
+        // совпадает с позитивной (порядок — по объявлению, сортировка та же).
+        let neg = "schedule \"T\" { point DEPOT { actions = [depart, arrive]; } \
+            point AIRPORT { actions = [arrive, depart]; } \
+            cycle CITY_ROUTE duration = 1h20m { 0m: DEPOT.depart(); 40m: AIRPORT.arrive(); -10m: AIRPORT.depart(); -0m: DEPOT.arrive(); } \
+            root_cycle start_time = \"2026-01-01T00:00:00\", duration = 24h { 6h: CITY_ROUTE(); } }";
+        let pos = neg
+            .replace("-10m: AIRPORT.depart()", "70m: AIRPORT.depart()")
+            .replace("-0m: DEPOT.arrive()", "80m: DEPOT.arrive()");
+        let (an, tn) = setup(neg);
+        let (ap, tp) = setup(Box::leak(pos.into_boxed_str()));
+        let (s, e) = window("2026-01-10T00:00:00", "2026-01-11T00:00:00");
+        assert_eq!(
+            expand(an, &tn, s, e).unwrap(),
+            expand(ap, &tp, s, e).unwrap()
+        );
+        assert_eq!(
+            times(&expand(an, &tn, s, e).unwrap()),
+            vec![
+                "2026-01-10T06:00:00",
+                "2026-01-10T06:40:00",
+                "2026-01-10T07:10:00",
+                "2026-01-10T07:20:00",
+            ]
+        );
     }
 
     #[test]

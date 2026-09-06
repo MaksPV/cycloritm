@@ -81,6 +81,28 @@ pub fn root_period_ms(root: &RootCycle) -> Result<i64, Error> {
     Ok(ms)
 }
 
+/// Эффективное смещение строки (§4 спеки): обычное — как есть,
+/// отрицательное `-X` — как `parent_ms − X`, где `parent_ms` — объявленная
+/// длительность непосредственно объемлющего цикла.
+/// `X > parent_ms` — E07 (`offset '-2h' out of bounds (duration 1h20m)`);
+/// `parent_raw` — сырой текст длительности родителя для сообщения.
+/// Невалидная запись самого смещения (`1h2h`) — сначала E05.
+pub fn effective_offset_ms(
+    stmt: &cycloritm_parser::Stmt,
+    parent_ms: i64,
+    parent_raw: &str,
+) -> Result<i64, Error> {
+    let x = duration_ms(&stmt.offset)?;
+    if stmt.negative {
+        if x > parent_ms {
+            return Err(Error::e07_neg_offset(&stmt.offset_raw(), parent_raw));
+        }
+        Ok(parent_ms - x)
+    } else {
+        Ok(x)
+    }
+}
+
 /// Миллисекунды в человеческую строку для сообщений E07.
 ///
 /// Формат прибит примером из §5: `by 20m (80m > 60m)` — все три числа
@@ -168,6 +190,50 @@ mod tests {
         assert_eq!(format_duration(500), "500ms");
         // Часы и крупнее суммарно в минутах — следствие примера.
         assert_eq!(format_duration(90_000_000), "1500m");
+    }
+
+    #[test]
+    fn resolves_negative_offsets() {
+        use cycloritm_parser::Stmt;
+        let stmt = |negative: bool, raw: &str, items: &[(&str, DurationUnit)]| Stmt {
+            offset: dur(raw, items),
+            negative,
+            invocation: cycloritm_parser::Invocation::CycleCall {
+                name: "R".to_owned(),
+            },
+        };
+        use DurationUnit::*;
+        // Родитель 1h20m = 4_800_000 мс.
+        let parent = 4_800_000;
+        // Середина: -10m ≡ 70m.
+        let st = stmt(true, "10m", &[("10", Minute)]);
+        assert_eq!(effective_offset_ms(&st, parent, "1h20m"), Ok(4_200_000));
+        // Встык: -0m ≡ конец.
+        let st = stmt(true, "0m", &[("0", Minute)]);
+        assert_eq!(effective_offset_ms(&st, parent, "1h20m"), Ok(4_800_000));
+        // Эффективный ноль: -1h20m ≡ 0m.
+        let st = stmt(true, "1h20m", &[("1", Hour), ("20", Minute)]);
+        assert_eq!(effective_offset_ms(&st, parent, "1h20m"), Ok(0));
+        // Положительное — как есть.
+        let st = stmt(false, "40m", &[("40", Minute)]);
+        assert_eq!(effective_offset_ms(&st, parent, "1h20m"), Ok(2_400_000));
+    }
+
+    #[test]
+    fn rejects_negative_out_of_bounds() {
+        use cycloritm_parser::Stmt;
+        use DurationUnit::*;
+        // -2h при родителе 1h20m: эффективное -40m — E07, код и сообщение по §5.
+        let st = Stmt {
+            offset: dur("2h", &[("2", Hour)]),
+            negative: true,
+            invocation: cycloritm_parser::Invocation::CycleCall {
+                name: "R".to_owned(),
+            },
+        };
+        let err = effective_offset_ms(&st, 4_800_000, "1h20m").expect_err("вылет ниже нуля");
+        assert_eq!(err.code, "E07");
+        assert_eq!(err.message, "offset '-2h' out of bounds (duration 1h20m)");
     }
 
     #[test]

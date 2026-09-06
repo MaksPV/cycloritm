@@ -12,7 +12,7 @@ use std::collections::{HashMap, HashSet};
 
 use cycloritm_parser::{Invocation, Schedule, Stmt};
 
-use crate::duration::{duration_ms, format_duration, root_period_ms};
+use crate::duration::{duration_ms, effective_offset_ms, format_duration, root_period_ms};
 use crate::Error;
 
 /// Таблицы имён после успешной проверки — вход later-фаз ядра.
@@ -122,20 +122,28 @@ fn visit_cycle<'a>(
 }
 
 /// Граница циклов (E07, правило 8): `actual(C) ≤ duration(C)` для каждого
-/// цикла и `root_cycle`. В сообщении — вызов со строки, давшей максимум
-/// (при равных концах — первая в порядке объявления).
+/// цикла и `root_cycle`. Отрицательные смещения разрешены заранее
+/// (`duration(C) − X`); вылет ниже нуля — тоже E07
+/// (`offset '-2h' out of bounds (duration 1h20m)`), проверяется в порядке
+/// объявления и побеждает сразу. В сообщении о переполнении — вызов
+/// со строки, давшей максимум (при равных концах — первая в порядке объявления).
 /// Вызывать после `validate_names` и `check_recursion`.
 pub fn check_bounds(schedule: &Schedule, tables: &NameTables<'_>) -> Result<(), Error> {
     for c in &schedule.cycles {
         let limit = duration_ms(&c.duration)?;
-        let (end, argmax) = stmts_end(&c.stmts, tables)?;
+        let (end, argmax) = stmts_end(&c.stmts, limit, &c.duration.raw, tables)?;
         if end > limit {
             let row = argmax.expect("конец больше лимита — строка-аргмакс есть");
             return Err(blame(&c.stmts[row], &c.name, end, limit));
         }
     }
     let period = root_period_ms(&schedule.root)?;
-    let (end, argmax) = stmts_end(&schedule.root.stmts, tables)?;
+    let (end, argmax) = stmts_end(
+        &schedule.root.stmts,
+        period,
+        &schedule.root.duration.raw,
+        tables,
+    )?;
     if end > period {
         let row = argmax.expect("конец больше лимита — строка-аргмакс есть");
         return Err(blame(&schedule.root.stmts[row], "root_cycle", end, period));
@@ -144,26 +152,43 @@ pub fn check_bounds(schedule: &Schedule, tables: &NameTables<'_>) -> Result<(), 
 }
 
 /// Фактическая длительность именованного цикла (§2):
-/// `max(o + длина вызова)` по строкам; длина — `0` для действия точки,
-/// объявленная длительность для вызова цикла; пустой цикл — `0`.
+/// `max(o + длина вызова)` по строкам, где `o` — эффективное смещение
+/// (отрицательные уже разрешены через длительность цикла); длина — `0`
+/// для действия точки, объявленная длительность для вызова цикла;
+/// пустой цикл — `0`.
 /// Нужна решётке (§4) как горизонт занятости `S`.
 /// Рекурсии здесь нет: берутся только объявленные длительности.
 pub fn actual_ms(name: &str, tables: &NameTables<'_>) -> Result<i64, Error> {
     let cycle = tables.cycles.get(name).expect("имена уже проверены");
-    Ok(stmts_end(&cycle.stmts, tables)?.0)
+    let limit = duration_ms(&cycle.duration)?;
+    Ok(stmts_end(&cycle.stmts, limit, &cycle.duration.raw, tables)?.0)
 }
 
 /// Фактическая длительность `root_cycle` — горизонт занятости `S` (§4).
 pub fn root_actual_ms(schedule: &Schedule, tables: &NameTables<'_>) -> Result<i64, Error> {
-    Ok(stmts_end(&schedule.root.stmts, tables)?.0)
+    let period = duration_ms(&schedule.root.duration)?;
+    Ok(stmts_end(
+        &schedule.root.stmts,
+        period,
+        &schedule.root.duration.raw,
+        tables,
+    )?
+    .0)
 }
 
 /// Конец занятого отрезка списка строк и индекс строки-аргмакса
 /// (при равных концах — первой). Пустой список — `(0, None)`.
-fn stmts_end(stmts: &[Stmt], tables: &NameTables<'_>) -> Result<(i64, Option<usize>), Error> {
+/// `limit`/`limit_raw` — объявленная длительность непосредственно объемлющего
+/// цикла: через неё разрешаются отрицательные смещения.
+fn stmts_end(
+    stmts: &[Stmt],
+    limit: i64,
+    limit_raw: &str,
+    tables: &NameTables<'_>,
+) -> Result<(i64, Option<usize>), Error> {
     let mut best: (i64, Option<usize>) = (0, None);
     for (i, st) in stmts.iter().enumerate() {
-        let offset = duration_ms(&st.offset)?;
+        let offset = effective_offset_ms(st, limit, limit_raw)?;
         let span = match &st.invocation {
             Invocation::PointAction { .. } => 0,
             Invocation::CycleCall { name } => {
@@ -415,6 +440,62 @@ mod tests {
             root_cycle start_time = \"2026-01-01T00:00:00\", duration = 24h { 6h: EMPTY(); } }";
         let (_ast, t) = tables(src);
         assert_eq!(actual_ms("EMPTY", &t), Ok(0));
+    }
+
+    #[test]
+    fn rejects_negative_out_of_bounds() {
+        // -2h при duration = 1h20m → эффективное -40m: E07, сообщение по §5.
+        let src = "schedule \"T\" { point A { actions = [x]; } \
+            cycle R duration = 1h20m { 0m: A.x(); -2h: A.x(); } \
+            root_cycle start_time = \"2026-01-01T00:00:00\", duration = 24h { 6h: R(); } }";
+        let (ast, t) = tables(src);
+        check_recursion(ast, &t).expect("рекурсии нет");
+        let e = check_bounds(ast, &t).expect_err("вылет ниже нуля");
+        assert_eq!(e.code, "E07");
+        assert_eq!(
+            e.message.as_str(),
+            "offset '-2h' out of bounds (duration 1h20m)"
+        );
+    }
+
+    #[test]
+    fn accepts_negative_edges() {
+        // -0m ≡ конец (встык валидно), -1h20m ≡ 0m (эффективный ноль валиден).
+        let src = "schedule \"T\" { point A { actions = [x]; } \
+            cycle R duration = 1h20m { -1h20m: A.x(); -10m: A.x(); -0m: A.x(); } \
+            root_cycle start_time = \"2026-01-01T00:00:00\", duration = 24h { 6h: R(); } }";
+        let (ast, t) = tables(src);
+        check_recursion(ast, &t).expect("рекурсии нет");
+        check_bounds(ast, &t).expect("границы и стыки валидны");
+        assert_eq!(actual_ms("R", &t), Ok(4_800_000));
+    }
+
+    #[test]
+    fn accepts_negative_in_zero_duration_cycle() {
+        // Нулевой цикл: -0m даёт эффективное 0 ∈ [0, 0] — валидно без исключений.
+        let src = "schedule \"T\" { point A { actions = [x]; } \
+            cycle EMPTY duration = 0m { -0m: A.x(); } \
+            root_cycle start_time = \"2026-01-01T00:00:00\", duration = 24h { 6h: EMPTY(); } }";
+        let (ast, t) = tables(src);
+        check_recursion(ast, &t).expect("рекурсии нет");
+        check_bounds(ast, &t).expect("-0m в нулевом цикле валидно");
+        assert_eq!(actual_ms("EMPTY", &t), Ok(0));
+    }
+
+    #[test]
+    fn negative_overrun_still_blamed() {
+        // Эффективное смещение + длина вызова за границей — обычный E07.
+        let src = "schedule \"T\" { point A { actions = [x]; } \
+            cycle INNER duration = 40m { 0m: A.x(); } \
+            cycle OUTER duration = 1h { -10m: INNER(); } \
+            root_cycle start_time = \"2026-01-01T00:00:00\", duration = 24h { 6h: OUTER(); } }";
+        let (ast, t) = tables(src);
+        check_recursion(ast, &t).expect("рекурсии нет");
+        let e = check_bounds(ast, &t).expect_err("50m + 40m = 90m > 60m");
+        assert_eq!(
+            (e.code, e.message.as_str()),
+            ("E07", "cycle 'INNER' overruns 'OUTER' by 30m (90m > 60m)")
+        );
     }
 
     #[test]
