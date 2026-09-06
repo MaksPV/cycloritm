@@ -1,11 +1,153 @@
 //! Grammar and AST for the Cycloritm DSL.
 
+use pest::Parser as _;
+use pest::iterators::Pair;
 use pest_derive::Parser;
 
 /// Парсер грамматики из §3 спеки (см. `grammar.pest`).
 #[derive(Parser)]
 #[grammar = "grammar.pest"]
 pub struct CycloParser;
+
+/// Разбор исходника в AST. Ошибка — синтаксическая, без E-кода
+/// (коды E01–E09 — только валидация уже разобранного AST в ядре).
+pub fn parse(src: &str) -> Result<Schedule, pest::error::Error<Rule>> {
+    let file = CycloParser::parse(Rule::file, src)?.next().expect("file непуст");
+    debug_assert_eq!(file.as_rule(), Rule::file);
+    let schedule = file
+        .into_inner()
+        .next()
+        .expect("file содержит ровно schedule");
+    Ok(build_schedule(schedule))
+}
+
+fn build_schedule(pair: Pair<Rule>) -> Schedule {
+    debug_assert_eq!(pair.as_rule(), Rule::schedule);
+    let mut inner = pair.into_inner();
+    let name = unquote(inner.next().expect("schedule: имя"));
+    let mut points = Vec::new();
+    let mut cycles = Vec::new();
+    let mut root = None;
+    for p in inner {
+        match p.as_rule() {
+            Rule::point => points.push(build_point(p)),
+            Rule::cycle => cycles.push(build_cycle(p)),
+            Rule::root_cycle => root = Some(build_root_cycle(p)),
+            r => unreachable!("schedule: неожиданное правило {r:?}"),
+        }
+    }
+    Schedule {
+        name,
+        points,
+        cycles,
+        root: root.expect("schedule: root_cycle обязателен"),
+    }
+}
+
+fn build_point(pair: Pair<Rule>) -> Point {
+    let mut inner = pair.into_inner();
+    let name = inner.next().expect("point: имя").as_str().to_owned();
+    let actions = inner
+        .next()
+        .expect("point: actions")
+        .into_inner()
+        .map(|a| a.as_str().to_owned())
+        .collect();
+    Point { name, actions }
+}
+
+fn build_cycle(pair: Pair<Rule>) -> Cycle {
+    let mut inner = pair.into_inner();
+    let name = inner.next().expect("cycle: имя").as_str().to_owned();
+    let duration = build_duration(inner.next().expect("cycle: duration"));
+    let stmts = inner.map(build_stmt).collect();
+    Cycle {
+        name,
+        duration,
+        stmts,
+    }
+}
+
+fn build_root_cycle(pair: Pair<Rule>) -> RootCycle {
+    let mut inner = pair.into_inner();
+    let start_time = unquote(inner.next().expect("root_cycle: start_time"));
+    let duration = build_duration(inner.next().expect("root_cycle: duration"));
+    let stmts = inner.map(build_stmt).collect();
+    RootCycle {
+        start_time,
+        duration,
+        stmts,
+    }
+}
+
+fn build_stmt(pair: Pair<Rule>) -> Stmt {
+    let mut inner = pair.into_inner();
+    let offset = build_duration(inner.next().expect("stmt: смещение"));
+    let call = inner
+        .next()
+        .expect("stmt: вызов")
+        .into_inner()
+        .next()
+        .expect("invocation: вызов");
+    let invocation = match call.as_rule() {
+        Rule::point_action => {
+            let mut parts = call.into_inner();
+            Invocation::PointAction {
+                point: parts.next().expect("вызов: точка").as_str().to_owned(),
+                action: parts.next().expect("вызов: действие").as_str().to_owned(),
+            }
+        }
+        Rule::cycle_call => Invocation::CycleCall {
+            name: call
+                .into_inner()
+                .next()
+                .expect("вызов: цикл")
+                .as_str()
+                .to_owned(),
+        },
+        r => unreachable!("stmt: неожиданный вызов {r:?}"),
+    };
+    Stmt {
+        offset,
+        invocation,
+    }
+}
+
+fn build_duration(pair: Pair<Rule>) -> Duration {
+    // Спан повторения `duration_item+` иногда захватывает пробелы/перенос
+    // перед следующим токеном (напр. `"24h\n  "` перед `{`). Семантику несут
+    // `items`, а `raw` идёт в сообщения E05 — висячий хвост срезаем.
+    let raw = pair.as_str().trim_end().to_owned();
+    let items = pair
+        .into_inner()
+        .map(|item| {
+            let mut parts = item.into_inner();
+            let number = parts
+                .next()
+                .expect("duration_item: число")
+                .as_str()
+                .to_owned();
+            let unit = match parts.next().expect("duration_item: юнит").as_str() {
+                "w" => DurationUnit::Week,
+                "d" => DurationUnit::Day,
+                "h" => DurationUnit::Hour,
+                "m" => DurationUnit::Minute,
+                "s" => DurationUnit::Second,
+                "ms" => DurationUnit::Millisecond,
+                u => unreachable!("duration_unit: неожиданный юнит {u:?}"),
+            };
+            DurationItem { number, unit }
+        })
+        .collect();
+    Duration { raw, items }
+}
+
+/// Снять кавычки `"..."`. Экранирования в строках нет, кавычка внутри
+/// непредставима — среза достаточно.
+fn unquote(pair: Pair<Rule>) -> String {
+    let s = pair.as_str();
+    s[1..s.len() - 1].to_owned()
+}
 
 pub fn placeholder() -> bool {
     true
@@ -94,7 +236,6 @@ pub enum DurationUnit {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pest::Parser as _;
 
     #[test]
     fn stub() {
@@ -102,16 +243,45 @@ mod tests {
     }
 
     #[test]
-    fn grammar_parses_route() {
+    fn parse_route_matches_fixture() {
         let src = include_str!("../../../examples/route.cyclo");
-        CycloParser::parse(Rule::file, src).expect("route.cyclo обязан разбираться");
+        let got = parse(src).expect("route.cyclo обязан разбираться");
+        assert_eq!(got, route_ast());
     }
 
     #[test]
-    fn grammar_rejects_missing_root_cycle() {
+    fn parse_rejects_missing_root_cycle() {
         // bad_syntax.cyclo: нет root_cycle → ошибка парсера без E-кода.
         let src = include_str!("../../../examples/bad_syntax.cyclo");
-        assert!(CycloParser::parse(Rule::file, src).is_err());
+        assert!(parse(src).is_err());
+    }
+
+    #[test]
+    fn parse_rejects_old_trailing_comma() {
+        // Ревизия спеки: висячая запятая перед `{` запрещена строго.
+        let src = "schedule \"T\" { point A { actions = [x]; } \
+            cycle R duration = 1h, { 0m: A.x(); } \
+            root_cycle start_time = \"2026-01-01T00:00:00\", duration = 24h { 6h: R(); } }";
+        assert!(parse(src).is_err());
+    }
+
+    #[test]
+    fn parse_accepts_validation_fixtures() {
+        // Граница парсер/ядро: файлы bad_e01–e09 синтаксически корректны,
+        // их ошибки — валидация (E01–E09), а не синтаксис.
+        for src in [
+            include_str!("../../../examples/bad_e01.cyclo"),
+            include_str!("../../../examples/bad_e02.cyclo"),
+            include_str!("../../../examples/bad_e03.cyclo"),
+            include_str!("../../../examples/bad_e04.cyclo"),
+            include_str!("../../../examples/bad_e05.cyclo"),
+            include_str!("../../../examples/bad_e06.cyclo"),
+            include_str!("../../../examples/bad_e07.cyclo"),
+            include_str!("../../../examples/bad_e08.cyclo"),
+            include_str!("../../../examples/bad_e09.cyclo"),
+        ] {
+            parse(src).expect("bad_e*.cyclo обязан разбираться грамматикой");
+        }
     }
 
     /// Ожидаемый AST примера из §1 спеки (`route.cyclo`).
