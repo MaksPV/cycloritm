@@ -149,10 +149,6 @@ fn unquote(pair: Pair<Rule>) -> String {
     s[1..s.len() - 1].to_owned()
 }
 
-pub fn placeholder() -> bool {
-    true
-}
-
 // ---------------------------------------------------------------------------
 // AST — строго по §3 спеки, без валидации.
 // Проверки E01–E09 — дело ядра над уже разобранным AST: парсер принимает
@@ -236,11 +232,6 @@ pub enum DurationUnit {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn stub() {
-        assert!(placeholder());
-    }
 
     #[test]
     fn parse_route_matches_fixture() {

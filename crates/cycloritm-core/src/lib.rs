@@ -8,10 +8,6 @@ pub mod duration;
 pub mod expand;
 pub mod validate;
 
-pub fn placeholder() -> bool {
-    true
-}
-
 // ---------------------------------------------------------------------------
 // Ошибка валидации: коды E01–E09 из §5 спеки.
 // Печатается только `message` (примеры из таблицы спеки — без префикса кода).
@@ -104,12 +100,3 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn stub() {
-        assert!(placeholder());
-    }
-}
