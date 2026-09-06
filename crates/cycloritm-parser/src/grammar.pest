@@ -10,8 +10,8 @@ file        = { SOI ~ schedule ~ EOI }
 schedule    = { "schedule" ~ string ~ "{" ~ point* ~ cycle* ~ root_cycle ~ "}" }
 point       = { "point" ~ IDENT ~ "{" ~ "actions" ~ "=" ~ "[" ~ action_list ~ "]" ~ ";" ~ "}" }
 action_list = { IDENT ~ ("," ~ IDENT)* }
-cycle       = { "cycle" ~ IDENT ~ "duration" ~ "=" ~ duration ~ "," ~ "{" ~ stmt* ~ "}" }
-root_cycle  = { "root_cycle" ~ "start_time" ~ "=" ~ string ~ "," ~ "duration" ~ "=" ~ duration ~ "," ~ "{" ~ stmt* ~ "}" }
+cycle       = { "cycle" ~ IDENT ~ "duration" ~ "=" ~ duration ~ "{" ~ stmt* ~ "}" }
+root_cycle  = { "root_cycle" ~ "start_time" ~ "=" ~ string ~ "," ~ "duration" ~ "=" ~ duration ~ "{" ~ stmt* ~ "}" }
 stmt        = { duration ~ ":" ~ invocation ~ ";" }
 invocation  = { point_action | cycle_call }
 point_action = { IDENT ~ "." ~ IDENT ~ "(" ~ ")" }

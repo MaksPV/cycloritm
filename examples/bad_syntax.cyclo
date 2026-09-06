@@ -4,7 +4,7 @@ schedule "SYNTAX" {
   }
 
   cycle R
-    duration = 1h,
+    duration = 1h
   {
     0m: DEPOT.depart();
   }
