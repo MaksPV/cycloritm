@@ -12,6 +12,9 @@ dependencies = [
 [[package]]
 name = "cycloritm-core"
 version = "0.1.0"
+dependencies = [
+ "cycloritm-parser",
+]
 
 [[package]]
 name = "cycloritm-parser"
