@@ -9,3 +9,7 @@ description = "Grammar and AST for the Cycloritm DSL"
 [lib]
 name = "cycloritm_parser"
 path = "src/lib.rs"
+
+[dependencies]
+pest = "2"
+pest_derive = "2"
