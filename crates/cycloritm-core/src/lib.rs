@@ -70,6 +70,29 @@ impl Error {
     pub fn e09_not_point(name: &str) -> Self {
         Self::coded("E09", format!("cycle '{name}' is not a point"))
     }
+
+    /// E06: `recursive cycle 'A'`.
+    pub fn e06(name: &str) -> Self {
+        Self::coded("E06", format!("recursive cycle '{name}'"))
+    }
+
+    /// E07: `cycle 'CYCLE2' overruns 'CYCLE1' by 20m (80m > 60m)`.
+    /// Суммы уже отформатированы (`excess`, `end`, `limit` — строки вида `20m`).
+    pub fn e07_cycle(inner: &str, outer: &str, excess: &str, end: &str, limit: &str) -> Self {
+        Self::coded(
+            "E07",
+            format!("cycle '{inner}' overruns '{outer}' by {excess} ({end} > {limit})"),
+        )
+    }
+
+    /// E07 для действия точки (формат спеки задан только для циклов;
+    /// сообщение симметрично: `action 'depart' overruns 'C' by 1m (61m > 60m)`).
+    pub fn e07_action(action: &str, outer: &str, excess: &str, end: &str, limit: &str) -> Self {
+        Self::coded(
+            "E07",
+            format!("action '{action}' overruns '{outer}' by {excess} ({end} > {limit})"),
+        )
+    }
 }
 
 impl fmt::Display for Error {

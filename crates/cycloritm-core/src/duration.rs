@@ -81,6 +81,24 @@ pub fn root_period_ms(root: &RootCycle) -> Result<i64, Error> {
     Ok(ms)
 }
 
+/// Миллисекунды в человеческую строку для сообщений E07.
+///
+/// Формат прибит примером из §5: `by 20m (80m > 60m)` — все три числа
+/// в минутах, хотя `60m` это ровно `1h`. Отсюда каскад: целые минуты —
+/// суммарно в `m`, иначе целые секунды — в `s`, иначе `s+ms`/`ms`.
+/// Часы и крупнее никогда не печатаются (иначе пример не сходится).
+pub fn format_duration(ms: i64) -> String {
+    if ms % 60_000 == 0 {
+        format!("{}m", ms / 60_000)
+    } else if ms % 1_000 == 0 {
+        format!("{}s", ms / 1_000)
+    } else if ms / 1_000 > 0 {
+        format!("{}s{}ms", ms / 1_000, ms % 1_000)
+    } else {
+        format!("{ms}ms")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -124,6 +142,22 @@ mod tests {
     fn zero_is_valid() {
         use DurationUnit::*;
         assert_eq!(ms("0m", &[("0", Minute)]), 0);
+    }
+
+    #[test]
+    fn formats_for_e07_messages() {
+        // Прибито примером §5: `by 20m (80m > 60m)`.
+        assert_eq!(format_duration(1_200_000), "20m");
+        assert_eq!(format_duration(4_800_000), "80m");
+        assert_eq!(format_duration(3_600_000), "60m");
+        // Каскад ниже минут.
+        assert_eq!(format_duration(0), "0m");
+        assert_eq!(format_duration(60_000), "1m");
+        assert_eq!(format_duration(90_000), "90s");
+        assert_eq!(format_duration(1_500), "1s500ms");
+        assert_eq!(format_duration(500), "500ms");
+        // Часы и крупнее суммарно в минутах — следствие примера.
+        assert_eq!(format_duration(90_000_000), "1500m");
     }
 
     #[test]
