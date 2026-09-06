@@ -93,6 +93,17 @@ impl Error {
             format!("action '{action}' overruns '{outer}' by {excess} ({end} > {limit})"),
         )
     }
+
+    /// E07 для отрицательного смещения ниже нуля (§4 спеки):
+    /// `offset '-2h' out of bounds (duration 1h20m)`.
+    /// `offset_raw` — сырой текст со знаком (`'-2h'`), `duration_raw` — сырой
+    /// текст объявленной длительности объемлющего цикла.
+    pub fn e07_neg_offset(offset_raw: &str, duration_raw: &str) -> Self {
+        Self::coded(
+            "E07",
+            format!("offset '{offset_raw}' out of bounds (duration {duration_raw})"),
+        )
+    }
 }
 
 impl fmt::Display for Error {
