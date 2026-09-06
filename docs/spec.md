@@ -15,7 +15,7 @@ schedule "Автобусный парк" {
   }
   
   cycle CITY_ROUTE
-    duration = 1h20m,
+    duration = 1h20m
   {
     0m: DEPOT.depart();
     40m: AIRPORT.arrive();
@@ -25,7 +25,7 @@ schedule "Автобусный парк" {
   
   root_cycle
     start_time = "2026-01-01T00:00:00",
-    duration = 24h,
+    duration = 24h
   {
     6h: CITY_ROUTE();
     18h: CITY_ROUTE();
@@ -100,9 +100,9 @@ file        = schedule ;
 schedule    = "schedule" string "{" { point } { cycle } root_cycle "}" ;
 point       = "point" IDENT "{" "actions" "=" "[" action_list "]" ";" "}" ;
 action_list = IDENT { "," IDENT } ;
-cycle       = "cycle" IDENT "duration" "=" duration "," "{" { stmt } "}" ;
+cycle       = "cycle" IDENT "duration" "=" duration "{" { stmt } "}" ;
 root_cycle  = "root_cycle" "start_time" "=" string ","
-              "duration" "=" duration "," "{" { stmt } "}" ;
+              "duration" "=" duration "{" { stmt } "}" ;
 stmt        = duration ":" invocation ";" ;
 invocation  = IDENT "." IDENT "(" ")" | IDENT "(" ")" ;
 duration    = duration_item { duration_item } ;
