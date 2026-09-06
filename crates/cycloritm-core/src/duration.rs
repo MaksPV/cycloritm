@@ -6,7 +6,7 @@
 //! Ноль (`0m`) сам по себе валиден; запрет нулевого *периода* `root_cycle`
 //! (деление на ноль в решётке) проверяется отдельно, тоже E05.
 
-use cycloritm_parser::{Duration, DurationUnit};
+use cycloritm_parser::{Duration, DurationUnit, RootCycle};
 
 use crate::Error;
 
@@ -71,6 +71,16 @@ pub fn duration_ms(d: &Duration) -> Result<i64, Error> {
     i64::try_from(total).map_err(|_| Error::e05(&d.raw))
 }
 
+/// Период `root_cycle` в миллисекундах. Ноль запрещён (деление на ноль
+/// в решётке) — тоже E05 с сырым текстом длительности.
+pub fn root_period_ms(root: &RootCycle) -> Result<i64, Error> {
+    let ms = duration_ms(&root.duration)?;
+    if ms == 0 {
+        return Err(Error::e05(&root.duration.raw));
+    }
+    Ok(ms)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -114,6 +124,30 @@ mod tests {
     fn zero_is_valid() {
         use DurationUnit::*;
         assert_eq!(ms("0m", &[("0", Minute)]), 0);
+    }
+
+    #[test]
+    fn rejects_zero_root_period() {
+        use DurationUnit::*;
+        use cycloritm_parser::{RootCycle, Stmt};
+        let root = |raw: &str, items: &[(&str, DurationUnit)]| RootCycle {
+            start_time: "2026-01-01T00:00:00".to_owned(),
+            duration: dur(raw, items),
+            stmts: Vec::<Stmt>::new(),
+        };
+        // Ноль в любом виде — E05; ненулевой период проходит.
+        for (raw, items) in [
+            ("0m", vec![("0", Minute)]),
+            ("0h0m", vec![("0", Hour), ("0", Minute)]),
+        ] {
+            let err = root_period_ms(&root(raw, &items)).expect_err("нулевой период запрещён");
+            assert_eq!(err.code, "E05");
+            assert_eq!(err.message, format!("invalid duration '{raw}'"));
+        }
+        assert_eq!(
+            root_period_ms(&root("24h", &[("24", Hour)])),
+            Ok(86_400_000)
+        );
     }
 
     #[test]

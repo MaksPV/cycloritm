@@ -3,6 +3,7 @@
 
 use std::fmt;
 
+pub mod datetime;
 pub mod duration;
 
 pub fn placeholder() -> bool {
@@ -31,6 +32,11 @@ impl Error {
     /// E05: `invalid duration '1h2h'`, переполнение, нулевой период root_cycle.
     pub fn e05(raw: &str) -> Self {
         Self::coded("E05", format!("invalid duration '{raw}'"))
+    }
+
+    /// E08: `invalid datetime '...'` (битый `start_time` или `--start`/`--end`).
+    pub fn e08(raw: &str) -> Self {
+        Self::coded("E08", format!("invalid datetime '{raw}'"))
     }
 }
 
