@@ -37,6 +37,23 @@ fn route_matches_expected_json() {
 }
 
 #[test]
+fn neg_offsets_matches_expected_json() {
+    let out = run(&[
+        "run",
+        "../../examples/neg_offsets.cyclo",
+        "--start",
+        "2026-01-10T00:00:00",
+        "--end",
+        "2026-01-11T00:00:00",
+    ]);
+    let got = stdout_json(&out);
+    let expected = include_str!("../../../examples/neg_offsets.expected.json");
+    let expected: serde_json::Value = serde_json::from_str(expected).unwrap();
+    assert_eq!(got, expected);
+    assert!(out.stderr.is_empty(), "при успехе stderr пуст");
+}
+
+#[test]
 fn empty_window_gives_empty_events() {
     let out = run(&[
         "run",
@@ -64,6 +81,7 @@ fn validation_errors_go_to_stderr() {
             "bad_e07",
             "cycle 'CYCLE2' overruns 'CYCLE1' by 20m (80m > 60m)",
         ),
+        ("bad_e07_neg", "offset '-2h' out of bounds (duration 1h20m)"),
         ("bad_e08", "invalid datetime 'not-a-datetime'"),
         ("bad_e09", "point 'DEPOT' is not a cycle"),
     ] {
