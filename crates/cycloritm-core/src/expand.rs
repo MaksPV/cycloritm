@@ -59,7 +59,7 @@ pub fn expand(
         k += 1;
     }
     raw.retain(|e| e.time >= start && e.time < end);
-    raw.sort_by(|a, b| (a.time, a.k, a.seq).cmp(&(b.time, b.k, b.seq)));
+    raw.sort_by_key(|a| (a.time, a.k, a.seq));
     Ok(raw
         .into_iter()
         .map(|e| Event {
@@ -109,7 +109,10 @@ fn unfold(
             Ok(())
         }
         Invocation::CycleCall { name } => {
-            let cycle = tables.cycles.get(name.as_str()).expect("имена уже проверены");
+            let cycle = tables
+                .cycles
+                .get(name.as_str())
+                .expect("имена уже проверены");
             for st in &cycle.stmts {
                 let offset = duration_ms(&st.offset)? as i128;
                 unfold(&st.invocation, base + offset, k, tables, out, seq)?;
@@ -148,22 +151,60 @@ mod tests {
         let src = include_str!("../../../examples/route.cyclo");
         let (ast, t) = setup(src);
         let (s, e) = window("2026-01-10T00:00:00", "2026-01-11T00:00:00");
-        let events = expand(&ast, &t, s, e).unwrap();
+        let events = expand(ast, &t, s, e).unwrap();
         let got: Vec<(String, String, String)> = events
             .iter()
-            .map(|ev| (format_datetime(ev.time), ev.action.clone(), ev.point.clone()))
+            .map(|ev| {
+                (
+                    format_datetime(ev.time),
+                    ev.action.clone(),
+                    ev.point.clone(),
+                )
+            })
             .collect();
         assert_eq!(
             got,
             vec![
-                ("2026-01-10T06:00:00".to_owned(), "depart".to_owned(), "DEPOT".to_owned()),
-                ("2026-01-10T06:40:00".to_owned(), "arrive".to_owned(), "AIRPORT".to_owned()),
-                ("2026-01-10T06:50:00".to_owned(), "depart".to_owned(), "AIRPORT".to_owned()),
-                ("2026-01-10T07:20:00".to_owned(), "arrive".to_owned(), "DEPOT".to_owned()),
-                ("2026-01-10T18:00:00".to_owned(), "depart".to_owned(), "DEPOT".to_owned()),
-                ("2026-01-10T18:40:00".to_owned(), "arrive".to_owned(), "AIRPORT".to_owned()),
-                ("2026-01-10T18:50:00".to_owned(), "depart".to_owned(), "AIRPORT".to_owned()),
-                ("2026-01-10T19:20:00".to_owned(), "arrive".to_owned(), "DEPOT".to_owned()),
+                (
+                    "2026-01-10T06:00:00".to_owned(),
+                    "depart".to_owned(),
+                    "DEPOT".to_owned()
+                ),
+                (
+                    "2026-01-10T06:40:00".to_owned(),
+                    "arrive".to_owned(),
+                    "AIRPORT".to_owned()
+                ),
+                (
+                    "2026-01-10T06:50:00".to_owned(),
+                    "depart".to_owned(),
+                    "AIRPORT".to_owned()
+                ),
+                (
+                    "2026-01-10T07:20:00".to_owned(),
+                    "arrive".to_owned(),
+                    "DEPOT".to_owned()
+                ),
+                (
+                    "2026-01-10T18:00:00".to_owned(),
+                    "depart".to_owned(),
+                    "DEPOT".to_owned()
+                ),
+                (
+                    "2026-01-10T18:40:00".to_owned(),
+                    "arrive".to_owned(),
+                    "AIRPORT".to_owned()
+                ),
+                (
+                    "2026-01-10T18:50:00".to_owned(),
+                    "depart".to_owned(),
+                    "AIRPORT".to_owned()
+                ),
+                (
+                    "2026-01-10T19:20:00".to_owned(),
+                    "arrive".to_owned(),
+                    "DEPOT".to_owned()
+                ),
             ]
         );
     }
@@ -174,13 +215,13 @@ mod tests {
         let (ast, t) = setup(src);
         // end <= start — пусто без ошибки.
         let (s, e) = window("2026-01-11T00:00:00", "2026-01-10T00:00:00");
-        assert_eq!(expand(&ast, &t, s, e).unwrap(), vec![]);
+        assert_eq!(expand(ast, &t, s, e).unwrap(), vec![]);
         // Окно целиком до start_time — пусто.
         let (s, e) = window("2025-12-30T00:00:00", "2025-12-31T00:00:00");
-        assert_eq!(expand(&ast, &t, s, e).unwrap(), vec![]);
+        assert_eq!(expand(ast, &t, s, e).unwrap(), vec![]);
         // Окно встык к границе экземпляра: событие на end не входит.
         let (s, e) = window("2026-01-10T06:00:00", "2026-01-10T06:00:00");
-        assert_eq!(expand(&ast, &t, s, e).unwrap(), vec![]);
+        assert_eq!(expand(ast, &t, s, e).unwrap(), vec![]);
     }
 
     #[test]
@@ -191,7 +232,7 @@ mod tests {
             root_cycle start_time = \"2026-01-01T00:00:00\", duration = 24h { 6h: R(); } }";
         let (ast, t) = setup(src);
         let (s, e) = window("2026-01-01T00:00:00", "2026-01-02T00:00:00");
-        let events = expand(&ast, &t, s, e).unwrap();
+        let events = expand(ast, &t, s, e).unwrap();
         assert_eq!(times(&events), vec!["2026-01-01T06:00:00"; 3]);
         let actions: Vec<&str> = events.iter().map(|ev| ev.action.as_str()).collect();
         assert_eq!(actions, vec!["x", "y", "x"]);
@@ -206,7 +247,7 @@ mod tests {
             root_cycle start_time = \"2026-01-01T00:00:00\", duration = 1h { 0m: A.x(); 60m: A.x(); } }";
         let (ast, t) = setup(src);
         let (s, e) = window("2026-01-01T00:00:00", "2026-01-01T02:00:00");
-        let events = expand(&ast, &t, s, e).unwrap();
+        let events = expand(ast, &t, s, e).unwrap();
         // k=0: 00:00, 01:00; k=1: 01:00, 02:00(исключено концом окна).
         assert_eq!(
             times(&events),
@@ -225,7 +266,7 @@ mod tests {
         let src = include_str!("../../../examples/route.cyclo");
         let (ast, t) = setup(src);
         let (s, e) = window("2026-01-02T06:30:00", "2026-01-02T07:00:00");
-        let events = expand(&ast, &t, s, e).unwrap();
+        let events = expand(ast, &t, s, e).unwrap();
         assert_eq!(
             times(&events),
             vec!["2026-01-02T06:40:00", "2026-01-02T06:50:00"]

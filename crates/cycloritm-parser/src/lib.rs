@@ -1,7 +1,7 @@
 //! Grammar and AST for the Cycloritm DSL.
 
-use pest::Parser as _;
 use pest::iterators::Pair;
+use pest::Parser as _;
 use pest_derive::Parser;
 
 /// Парсер грамматики из §3 спеки (см. `grammar.pest`).
@@ -12,7 +12,9 @@ pub struct CycloParser;
 /// Разбор исходника в AST. Ошибка — синтаксическая, без E-кода
 /// (коды E01–E09 — только валидация уже разобранного AST в ядре).
 pub fn parse(src: &str) -> Result<Schedule, pest::error::Error<Rule>> {
-    let file = CycloParser::parse(Rule::file, src)?.next().expect("file непуст");
+    let file = CycloParser::parse(Rule::file, src)?
+        .next()
+        .expect("file непуст");
     debug_assert_eq!(file.as_rule(), Rule::file);
     let schedule = file
         .into_inner()
@@ -107,10 +109,7 @@ fn build_stmt(pair: Pair<Rule>) -> Stmt {
         },
         r => unreachable!("stmt: неожиданный вызов {r:?}"),
     };
-    Stmt {
-        offset,
-        invocation,
-    }
+    Stmt { offset, invocation }
 }
 
 fn build_duration(pair: Pair<Rule>) -> Duration {
@@ -309,12 +308,31 @@ mod tests {
             ],
             cycles: vec![Cycle {
                 name: "CITY_ROUTE".to_owned(),
-                duration: dur("1h20m", vec![("1", DurationUnit::Hour), ("20", DurationUnit::Minute)]),
+                duration: dur(
+                    "1h20m",
+                    vec![("1", DurationUnit::Hour), ("20", DurationUnit::Minute)],
+                ),
                 stmts: vec![
-                    point_call(dur("0m", vec![("0", DurationUnit::Minute)]), "DEPOT", "depart"),
-                    point_call(dur("40m", vec![("40", DurationUnit::Minute)]), "AIRPORT", "arrive"),
-                    point_call(dur("50m", vec![("50", DurationUnit::Minute)]), "AIRPORT", "depart"),
-                    point_call(dur("80m", vec![("80", DurationUnit::Minute)]), "DEPOT", "arrive"),
+                    point_call(
+                        dur("0m", vec![("0", DurationUnit::Minute)]),
+                        "DEPOT",
+                        "depart",
+                    ),
+                    point_call(
+                        dur("40m", vec![("40", DurationUnit::Minute)]),
+                        "AIRPORT",
+                        "arrive",
+                    ),
+                    point_call(
+                        dur("50m", vec![("50", DurationUnit::Minute)]),
+                        "AIRPORT",
+                        "depart",
+                    ),
+                    point_call(
+                        dur("80m", vec![("80", DurationUnit::Minute)]),
+                        "DEPOT",
+                        "arrive",
+                    ),
                 ],
             }],
             root: RootCycle {

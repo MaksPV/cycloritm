@@ -44,7 +44,10 @@ impl Error {
 
     /// E02: `action 'arrive' not allowed for point 'DEPOT'`.
     pub fn e02(action: &str, point: &str) -> Self {
-        Self::coded("E02", format!("action '{action}' not allowed for point '{point}'"))
+        Self::coded(
+            "E02",
+            format!("action '{action}' not allowed for point '{point}'"),
+        )
     }
 
     /// E03: `unknown cycle 'NIGHT_ROUTE'`.
@@ -99,4 +102,3 @@ impl fmt::Display for Error {
 }
 
 impl std::error::Error for Error {}
-

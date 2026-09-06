@@ -7,7 +7,10 @@ fn cyclo() -> Command {
 }
 
 fn run(args: &[&str]) -> Output {
-    cyclo().args(args).output().expect("бинарь cyclo обязан запускаться")
+    cyclo()
+        .args(args)
+        .output()
+        .expect("бинарь cyclo обязан запускаться")
 }
 
 fn stdout_json(out: &Output) -> serde_json::Value {
@@ -57,7 +60,10 @@ fn validation_errors_go_to_stderr() {
         ("bad_e04", "duplicate point 'DEPOT'"),
         ("bad_e05", "invalid duration '1h2h'"),
         ("bad_e06", "recursive cycle 'A'"),
-        ("bad_e07", "cycle 'CYCLE2' overruns 'CYCLE1' by 20m (80m > 60m)"),
+        (
+            "bad_e07",
+            "cycle 'CYCLE2' overruns 'CYCLE1' by 20m (80m > 60m)",
+        ),
         ("bad_e08", "invalid datetime 'not-a-datetime'"),
         ("bad_e09", "point 'DEPOT' is not a cycle"),
     ] {
@@ -73,7 +79,10 @@ fn validation_errors_go_to_stderr() {
         assert!(!out.status.success(), "для {file}");
         assert!(out.stdout.is_empty(), "для {file}: в stdout ничего");
         let err = String::from_utf8(out.stderr.clone()).expect("stderr — UTF-8");
-        assert!(err.contains(message), "для {file}: нет {message:?} в {err:?}");
+        assert!(
+            err.contains(message),
+            "для {file}: нет {message:?} в {err:?}"
+        );
     }
 }
 

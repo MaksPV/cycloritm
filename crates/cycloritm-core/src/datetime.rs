@@ -38,16 +38,15 @@ pub fn parse_datetime(s: &str) -> Result<i64, Error> {
     } else {
         0
     };
-    if !(1..=12).contains(&mo)
-        || d < 1
-        || d > days_in_month(y, mo)
-        || h > 23
-        || mi > 59
-        || se > 59
+    if !(1..=12).contains(&mo) || d < 1 || d > days_in_month(y, mo) || h > 23 || mi > 59 || se > 59
     {
         return Err(bad());
     }
-    Ok(days_from_civil(y, mo, d) * MS_PER_DAY + h * MS_PER_HOUR + mi * MS_PER_MIN + se * MS_PER_SEC + milli)
+    Ok(days_from_civil(y, mo, d) * MS_PER_DAY
+        + h * MS_PER_HOUR
+        + mi * MS_PER_MIN
+        + se * MS_PER_SEC
+        + milli)
 }
 
 /// Миллисекунды epoch обратно в наивную ISO-строку (см. §6 вывода).
@@ -180,10 +179,17 @@ mod tests {
     fn formats_back() {
         assert_eq!(format_datetime(0), "1970-01-01T00:00:00");
         assert_eq!(format_datetime(1_767_225_600_000), "2026-01-01T00:00:00");
-        assert_eq!(format_datetime(1_767_225_600_123), "2026-01-01T00:00:00.123");
+        assert_eq!(
+            format_datetime(1_767_225_600_123),
+            "2026-01-01T00:00:00.123"
+        );
         assert_eq!(format_datetime(1_768_024_800_000), "2026-01-10T06:00:00");
         // Круговой обход строка → мс → строка.
-        for s in ["2026-01-01T00:00:00", "2024-02-29T12:34:56.789", "1970-01-01T00:00:01.001"] {
+        for s in [
+            "2026-01-01T00:00:00",
+            "2024-02-29T12:34:56.789",
+            "1970-01-01T00:00:01.001",
+        ] {
             assert_eq!(format_datetime(ok(s)), s);
         }
     }

@@ -133,7 +133,17 @@ mod tests {
         assert_eq!(ms("24h", &[("24", Hour)]), 86_400_000);
         assert_eq!(ms("1d2s", &[("1", Day), ("2", Second)]), 86_402_000);
         assert_eq!(
-            ms("1w2d3h4m5s6ms", &[("1", Week), ("2", Day), ("3", Hour), ("4", Minute), ("5", Second), ("6", Millisecond)]),
+            ms(
+                "1w2d3h4m5s6ms",
+                &[
+                    ("1", Week),
+                    ("2", Day),
+                    ("3", Hour),
+                    ("4", Minute),
+                    ("5", Second),
+                    ("6", Millisecond)
+                ]
+            ),
             788_645_006
         );
     }
@@ -162,8 +172,8 @@ mod tests {
 
     #[test]
     fn rejects_zero_root_period() {
-        use DurationUnit::*;
         use cycloritm_parser::{RootCycle, Stmt};
+        use DurationUnit::*;
         let root = |raw: &str, items: &[(&str, DurationUnit)]| RootCycle {
             start_time: "2026-01-01T00:00:00".to_owned(),
             duration: dur(raw, items),
@@ -206,12 +216,18 @@ mod tests {
         use DurationUnit::*;
         // Граница лимита i64 из спеки: `106751991167d` влезает,
         // `106751991168d` — первое значение, которое уже нет.
-        assert_eq!(ms("106751991167d", &[("106751991167", Day)]), 9_223_372_036_828_800_000);
+        assert_eq!(
+            ms("106751991167d", &[("106751991167", Day)]),
+            9_223_372_036_828_800_000
+        );
         let err = e05("106751991168d", &[("106751991168", Day)]);
         assert_eq!(err.code, "E05");
         assert_eq!(err.message, "invalid duration '106751991168d'");
         // Мусорные цифры длиной в километр — тоже E05, а не паника.
-        let err = e05("99999999999999999999999h", &[("99999999999999999999999", Hour)]);
+        let err = e05(
+            "99999999999999999999999h",
+            &[("99999999999999999999999", Hour)],
+        );
         assert_eq!(err.code, "E05");
     }
 }

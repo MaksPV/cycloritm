@@ -167,7 +167,10 @@ fn stmts_end(stmts: &[Stmt], tables: &NameTables<'_>) -> Result<(i64, Option<usi
         let span = match &st.invocation {
             Invocation::PointAction { .. } => 0,
             Invocation::CycleCall { name } => {
-                let callee = tables.cycles.get(name.as_str()).expect("имена уже проверены");
+                let callee = tables
+                    .cycles
+                    .get(name.as_str())
+                    .expect("имена уже проверены");
                 duration_ms(&callee.duration)?
             }
         };
@@ -275,7 +278,10 @@ mod tests {
             cycle R duration = 1h { 0m: R.x(); } \
             root_cycle start_time = \"2026-01-01T00:00:00\", duration = 24h { 6h: R(); } }";
         let e = err(src);
-        assert_eq!((e.code, e.message.as_str()), ("E09", "point 'R' is not a cycle"));
+        assert_eq!(
+            (e.code, e.message.as_str()),
+            ("E09", "point 'R' is not a cycle")
+        );
     }
 
     #[test]
@@ -284,7 +290,10 @@ mod tests {
             cycle R duration = 1h { 0m: A.x(); } \
             root_cycle start_time = \"2026-01-01T00:00:00\", duration = 24h { 6h: R.depart(); } }";
         let e = err(src);
-        assert_eq!((e.code, e.message.as_str()), ("E09", "cycle 'R' is not a point"));
+        assert_eq!(
+            (e.code, e.message.as_str()),
+            ("E09", "cycle 'R' is not a point")
+        );
     }
 
     /// Разобранная фикстура + таблицы имён. `Box::leak` — тестовый приём,
@@ -312,8 +321,8 @@ mod tests {
             ),
         ] {
             let (ast, t) = tables(src);
-            let e = check_recursion(&ast, &t)
-                .and_then(|()| check_bounds(&ast, &t))
+            let e = check_recursion(ast, &t)
+                .and_then(|()| check_bounds(ast, &t))
                 .expect_err("ожидалась E06/E07");
             assert_eq!(e.code, code, "для {file}");
             assert_eq!(e.message, message, "для {file}");
@@ -324,8 +333,8 @@ mod tests {
     fn accepts_route_recursion_and_bounds() {
         let src = include_str!("../../../examples/route.cyclo");
         let (ast, t) = tables(src);
-        check_recursion(&ast, &t).expect("route без рекурсии");
-        check_bounds(&ast, &t).expect("route в границах");
+        check_recursion(ast, &t).expect("route без рекурсии");
+        check_bounds(ast, &t).expect("route в границах");
     }
 
     #[test]
@@ -335,8 +344,11 @@ mod tests {
             cycle B1 duration = 1h { 0m: A1(); } \
             root_cycle start_time = \"2026-01-01T00:00:00\", duration = 24h { 6h: A1(); } }";
         let (ast, t) = tables(src);
-        let e = check_recursion(&ast, &t).expect_err("цепочка — тоже рекурсия");
-        assert_eq!((e.code, e.message.as_str()), ("E06", "recursive cycle 'A1'"));
+        let e = check_recursion(ast, &t).expect_err("цепочка — тоже рекурсия");
+        assert_eq!(
+            (e.code, e.message.as_str()),
+            ("E06", "recursive cycle 'A1'")
+        );
     }
 
     #[test]
@@ -347,8 +359,8 @@ mod tests {
             cycle OUTER duration = 2h { 30m: INNER(); } \
             root_cycle start_time = \"2026-01-01T00:00:00\", duration = 24h { 6h: OUTER(); } }";
         let (ast, t) = tables(src);
-        check_recursion(&ast, &t).expect("рекурсии нет");
-        check_bounds(&ast, &t).expect("всё в границах");
+        check_recursion(ast, &t).expect("рекурсии нет");
+        check_bounds(ast, &t).expect("всё в границах");
     }
 
     #[test]
@@ -358,8 +370,8 @@ mod tests {
             cycle R duration = 1h { 61m: A.x(); } \
             root_cycle start_time = \"2026-01-01T00:00:00\", duration = 24h { 6h: R(); } }";
         let (ast, t) = tables(src);
-        check_recursion(&ast, &t).expect("рекурсии нет");
-        let e = check_bounds(&ast, &t).expect_err("событие за границей");
+        check_recursion(ast, &t).expect("рекурсии нет");
+        let e = check_bounds(ast, &t).expect_err("событие за границей");
         assert_eq!(
             (e.code, e.message.as_str()),
             ("E07", "action 'x' overruns 'R' by 1m (61m > 60m)")
@@ -372,8 +384,8 @@ mod tests {
             cycle R duration = 1h { 0m: A.x(); } \
             root_cycle start_time = \"2026-01-01T00:00:00\", duration = 1h { 30m: R(); } }";
         let (ast, t) = tables(src);
-        check_recursion(&ast, &t).expect("рекурсии нет");
-        let e = check_bounds(&ast, &t).expect_err("вылез за период");
+        check_recursion(ast, &t).expect("рекурсии нет");
+        let e = check_bounds(ast, &t).expect_err("вылез за период");
         assert_eq!(
             (e.code, e.message.as_str()),
             ("E07", "cycle 'R' overruns 'root_cycle' by 30m (90m > 60m)")
@@ -393,7 +405,7 @@ mod tests {
             root_cycle start_time = \"2026-01-01T00:00:00\", duration = 24h { 6h: FOO(); } }";
         let (ast2, t2) = tables(src);
         assert_eq!(actual_ms("FOO", &t2), Ok(5_700_000));
-        check_bounds(&ast2, &t2).expect("FOO в границах");
+        check_bounds(ast2, &t2).expect("FOO в границах");
     }
 
     #[test]
@@ -414,8 +426,8 @@ mod tests {
             cycle OUTER duration = 1h { 0m: A1(); 10m: B1(); } \
             root_cycle start_time = \"2026-01-01T00:00:00\", duration = 24h { 6h: OUTER(); } }";
         let (ast, t) = tables(src);
-        check_recursion(&ast, &t).expect("рекурсии нет");
-        let e = check_bounds(&ast, &t).expect_err("обе строки вылезают");
+        check_recursion(ast, &t).expect("рекурсии нет");
+        let e = check_bounds(ast, &t).expect_err("обе строки вылезают");
         // Концы: 0+120m=120m и 10m+120m=130m; вина на B1.
         assert_eq!(
             (e.code, e.message.as_str()),
