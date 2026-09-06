@@ -12,7 +12,11 @@ point       = { "point" ~ IDENT ~ "{" ~ "actions" ~ "=" ~ "[" ~ action_list ~ "]
 action_list = { IDENT ~ ("," ~ IDENT)* }
 cycle       = { "cycle" ~ IDENT ~ "duration" ~ "=" ~ duration ~ "{" ~ stmt* ~ "}" }
 root_cycle  = { "root_cycle" ~ "start_time" ~ "=" ~ string ~ "," ~ "duration" ~ "=" ~ duration ~ "{" ~ stmt* ~ "}" }
-stmt        = { duration ~ ":" ~ invocation ~ ";" }
+stmt        = { neg_sign? ~ duration ~ ":" ~ invocation ~ ";" }
+// Минус смещения — именованное правило, чтобы парсер его видел; слитность
+// (`-10m` ок, `- 10m` — ошибка) проверяется в `build_stmt` по спанам:
+// неявные пробелы `~` здесь пропускают пробел осознанно.
+neg_sign    = { "-" }
 invocation  = { point_action | cycle_call }
 point_action = { IDENT ~ "." ~ IDENT ~ "(" ~ ")" }
 cycle_call   = { IDENT ~ "(" ~ ")" }

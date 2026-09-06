@@ -20,10 +20,10 @@ pub fn parse(src: &str) -> Result<Schedule, pest::error::Error<Rule>> {
         .into_inner()
         .next()
         .expect("file содержит ровно schedule");
-    Ok(build_schedule(schedule))
+    build_schedule(schedule)
 }
 
-fn build_schedule(pair: Pair<Rule>) -> Schedule {
+fn build_schedule(pair: Pair<Rule>) -> Result<Schedule, pest::error::Error<Rule>> {
     debug_assert_eq!(pair.as_rule(), Rule::schedule);
     let mut inner = pair.into_inner();
     let name = unquote(inner.next().expect("schedule: имя"));
@@ -33,17 +33,17 @@ fn build_schedule(pair: Pair<Rule>) -> Schedule {
     for p in inner {
         match p.as_rule() {
             Rule::point => points.push(build_point(p)),
-            Rule::cycle => cycles.push(build_cycle(p)),
-            Rule::root_cycle => root = Some(build_root_cycle(p)),
+            Rule::cycle => cycles.push(build_cycle(p)?),
+            Rule::root_cycle => root = Some(build_root_cycle(p)?),
             r => unreachable!("schedule: неожиданное правило {r:?}"),
         }
     }
-    Schedule {
+    Ok(Schedule {
         name,
         points,
         cycles,
         root: root.expect("schedule: root_cycle обязателен"),
-    }
+    })
 }
 
 fn build_point(pair: Pair<Rule>) -> Point {
@@ -58,33 +58,52 @@ fn build_point(pair: Pair<Rule>) -> Point {
     Point { name, actions }
 }
 
-fn build_cycle(pair: Pair<Rule>) -> Cycle {
+fn build_cycle(pair: Pair<Rule>) -> Result<Cycle, pest::error::Error<Rule>> {
     let mut inner = pair.into_inner();
     let name = inner.next().expect("cycle: имя").as_str().to_owned();
     let duration = build_duration(inner.next().expect("cycle: duration"));
-    let stmts = inner.map(build_stmt).collect();
-    Cycle {
+    let stmts = inner.map(build_stmt).collect::<Result<_, _>>()?;
+    Ok(Cycle {
         name,
         duration,
         stmts,
-    }
+    })
 }
 
-fn build_root_cycle(pair: Pair<Rule>) -> RootCycle {
+fn build_root_cycle(pair: Pair<Rule>) -> Result<RootCycle, pest::error::Error<Rule>> {
     let mut inner = pair.into_inner();
     let start_time = unquote(inner.next().expect("root_cycle: start_time"));
     let duration = build_duration(inner.next().expect("root_cycle: duration"));
-    let stmts = inner.map(build_stmt).collect();
-    RootCycle {
+    let stmts = inner.map(build_stmt).collect::<Result<_, _>>()?;
+    Ok(RootCycle {
         start_time,
         duration,
         stmts,
-    }
+    })
 }
 
-fn build_stmt(pair: Pair<Rule>) -> Stmt {
+fn build_stmt(pair: Pair<Rule>) -> Result<Stmt, pest::error::Error<Rule>> {
+    debug_assert_eq!(pair.as_rule(), Rule::stmt);
+    let span = pair.as_span();
     let mut inner = pair.into_inner();
-    let offset = build_duration(inner.next().expect("stmt: смещение"));
+    let first = inner.next().expect("stmt: смещение или минус");
+    // Минус смещения (§3 спеки): пишется слитно (`-10m` ок, `- 10m` — ошибка).
+    // Грамматика пробел пропускает осознанно — границу проверяем по спанам.
+    let (negative, offset_pair) = if first.as_rule() == Rule::neg_sign {
+        let offset_pair = inner.next().expect("stmt: длительность после минуса");
+        if first.as_span().end() != offset_pair.as_span().start() {
+            return Err(pest::error::Error::new_from_span(
+                pest::error::ErrorVariant::CustomError {
+                    message: "minus in offset must be glued to duration ('-10m')".to_owned(),
+                },
+                span,
+            ));
+        }
+        (true, offset_pair)
+    } else {
+        (false, first)
+    };
+    let offset = build_duration(offset_pair);
     let call = inner
         .next()
         .expect("stmt: вызов")
@@ -109,7 +128,11 @@ fn build_stmt(pair: Pair<Rule>) -> Stmt {
         },
         r => unreachable!("stmt: неожиданный вызов {r:?}"),
     };
-    Stmt { offset, invocation }
+    Ok(Stmt {
+        offset,
+        negative,
+        invocation,
+    })
 }
 
 fn build_duration(pair: Pair<Rule>) -> Duration {
@@ -188,11 +211,25 @@ pub struct RootCycle {
     pub stmts: Vec<Stmt>,
 }
 
-/// Одна строка цикла: `<смещение>: <вызов>;`.
+/// Одна строка цикла: `[<минус>] <смещение>: <вызов>;`.
+/// `negative` — минус из §3 спеки (только у смещения строки, слитно);
+/// разрешается ядром как `duration(родителя) − смещение`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Stmt {
     pub offset: Duration,
+    pub negative: bool,
     pub invocation: Invocation,
+}
+
+impl Stmt {
+    /// Сырой текст смещения для сообщений E07: с минусом (`'-2h'`) или без.
+    pub fn offset_raw(&self) -> String {
+        if self.negative {
+            format!("-{}", self.offset.raw)
+        } else {
+            self.offset.raw.clone()
+        }
+    }
 }
 
 /// Вызов: `DEPOT.depart()` — действие точки, `CITY_ROUTE()` — вызов цикла.
@@ -269,6 +306,7 @@ mod tests {
             include_str!("../../../examples/bad_e07.cyclo"),
             include_str!("../../../examples/bad_e08.cyclo"),
             include_str!("../../../examples/bad_e09.cyclo"),
+            include_str!("../../../examples/bad_e07_neg.cyclo"),
         ] {
             parse(src).expect("bad_e*.cyclo обязан разбираться грамматикой");
         }
@@ -289,6 +327,7 @@ mod tests {
         };
         let point_call = |offset: Duration, point: &str, action: &str| Stmt {
             offset,
+            negative: false,
             invocation: Invocation::PointAction {
                 point: point.to_owned(),
                 action: action.to_owned(),
@@ -341,12 +380,14 @@ mod tests {
                 stmts: vec![
                     Stmt {
                         offset: dur("6h", vec![("6", DurationUnit::Hour)]),
+                        negative: false,
                         invocation: Invocation::CycleCall {
                             name: "CITY_ROUTE".to_owned(),
                         },
                     },
                     Stmt {
                         offset: dur("18h", vec![("18", DurationUnit::Hour)]),
+                        negative: false,
                         invocation: Invocation::CycleCall {
                             name: "CITY_ROUTE".to_owned(),
                         },
@@ -354,6 +395,39 @@ mod tests {
                 ],
             },
         }
+    }
+
+    #[test]
+    fn parses_negative_offsets() {
+        // Минус — только у смещения строки; `-1h20m` — минус целиком, не покомпонентно.
+        let src = "schedule \"T\" { point A { actions = [x]; } \
+            cycle R duration = 1h20m { 0m: A.x(); -10m: A.x(); -0m: A.x(); -1h20m: A.x(); } \
+            root_cycle start_time = \"2026-01-01T00:00:00\", duration = 24h { -6h: R(); } }";
+        let s = parse(src).expect("отрицательные смещения обязаны разбираться");
+        let flags: Vec<bool> = s.cycles[0].stmts.iter().map(|st| st.negative).collect();
+        assert_eq!(flags, vec![false, true, true, true]);
+        assert_eq!(s.cycles[0].stmts[1].offset.raw, "10m");
+        assert_eq!(s.cycles[0].stmts[1].offset_raw(), "-10m");
+        assert_eq!(s.cycles[0].stmts[0].offset_raw(), "0m");
+        assert!(s.root.stmts[0].negative);
+    }
+
+    #[test]
+    fn rejects_space_after_minus() {
+        // Минус пишется слитно: `- 10m` — синтаксическая ошибка без E-кода.
+        let src = "schedule \"T\" { point A { actions = [x]; } \
+            cycle R duration = 1h { - 10m: A.x(); } \
+            root_cycle start_time = \"2026-01-01T00:00:00\", duration = 24h { 6h: R(); } }";
+        assert!(parse(src).is_err());
+    }
+
+    #[test]
+    fn rejects_minus_in_duration_header() {
+        // В заголовках (`duration = …`) длительности неотрицательны.
+        let src = "schedule \"T\" { point A { actions = [x]; } \
+            cycle R duration = -1h { 0m: A.x(); } \
+            root_cycle start_time = \"2026-01-01T00:00:00\", duration = 24h { 6h: R(); } }";
+        assert!(parse(src).is_err());
     }
 
     #[test]
